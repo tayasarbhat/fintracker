@@ -1,3 +1,8 @@
+// Site URL based on environment
+export const SITE_URL = import.meta.env.MODE === 'production' 
+  ? 'https://tayasarbhat.github.io/fintracker'
+  : 'http://localhost:5173/fintracker';
+
 export const DATE_RANGE_OPTIONS = [
   { value: 'all', label: 'All Time' },
   { value: 'today', label: 'Today' },

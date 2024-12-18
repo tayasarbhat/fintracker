@@ -1,8 +1,6 @@
 import React, { createContext, useContext, useReducer, useEffect } from 'react';
-import { useAuth } from './AuthContext';
 import { Transaction, Goal, Category, CreditDebitAccount } from '../types/baseTypes';
 import { initialCategories } from '../data/initialData';
-import { useTransactions } from '../hooks/useTransactions';
 
 interface State {
   transactions: Transaction[];
@@ -92,6 +90,49 @@ function expenseReducer(state: State, action: Action): State {
             : goal
         ),
       };
+    case 'ADD_CREDIT_DEBIT_ACCOUNT':
+      return {
+        ...state,
+        creditDebitAccounts: [...state.creditDebitAccounts, action.payload],
+      };
+    case 'UPDATE_CREDIT_DEBIT_ACCOUNT':
+      return {
+        ...state,
+        creditDebitAccounts: state.creditDebitAccounts.map((account) =>
+          account.id === action.payload.id ? action.payload : account
+        ),
+      };
+    case 'DELETE_CREDIT_DEBIT_ACCOUNT':
+      return {
+        ...state,
+        creditDebitAccounts: state.creditDebitAccounts.filter(
+          (account) => account.id !== action.payload
+        ),
+      };
+    case 'ADD_CREDIT_DEBIT_TRANSACTION':
+      return {
+        ...state,
+        creditDebitAccounts: state.creditDebitAccounts.map((account) =>
+          account.id === action.payload.accountId
+            ? {
+                ...account,
+                transactions: [...account.transactions, action.payload.transaction],
+                totalCredit:
+                  action.payload.transaction.type === 'credit'
+                    ? account.totalCredit + action.payload.transaction.amount
+                    : account.totalCredit,
+                totalDebit:
+                  action.payload.transaction.type === 'debit'
+                    ? account.totalDebit + action.payload.transaction.amount
+                    : account.totalDebit,
+                balance:
+                  action.payload.transaction.type === 'credit'
+                    ? account.balance - action.payload.transaction.amount
+                    : account.balance + action.payload.transaction.amount,
+              }
+            : account
+        ),
+      };
     default:
       return state;
   }
@@ -103,86 +144,33 @@ const ExpenseContext = createContext<{
 } | null>(null);
 
 export function ExpenseProvider({ children }: { children: React.ReactNode }) {
-  const { transactions, loading, addTransaction, deleteTransaction } = useTransactions();
-  const { user } = useAuth();
   const [state, dispatch] = useReducer(expenseReducer, initialState);
 
-  // Initialize state from localStorage
-  const initialStateWithPersistedData = React.useMemo(() => {
-    if (!user) return initialState;
-    
-    try {
-      const savedGoals = localStorage.getItem(`goals_${user.id}`);
-      return {
-        ...initialState,
-        goals: savedGoals ? JSON.parse(savedGoals) : [],
-      };
-    } catch (error) {
-      console.error('Error loading persisted data:', error);
-      return initialState;
-    }
-  }, [user]);
-
-  // Update state with persisted data when available
+  // Load data from localStorage
   useEffect(() => {
-    if (user) {
-      dispatch({ 
-        type: 'SET_TRANSACTIONS', 
-        payload: initialStateWithPersistedData.transactions 
-      });
-    }
-  }, [initialStateWithPersistedData, user]);
-
-  // Save goals to localStorage
-  useEffect(() => {
-    if (user) {
-      try {
-        localStorage.setItem(`goals_${user.id}`, JSON.stringify(state.goals));
-      } catch (error) {
-        console.error('Error saving goals:', error);
+    const savedData = localStorage.getItem('financeTrackerData');
+    if (savedData) {
+      const parsedData = JSON.parse(savedData);
+      dispatch({ type: 'SET_TRANSACTIONS', payload: parsedData.transactions || [] });
+      if (parsedData.creditDebitAccounts) {
+        parsedData.creditDebitAccounts.forEach((account: CreditDebitAccount) => {
+          dispatch({ type: 'ADD_CREDIT_DEBIT_ACCOUNT', payload: account });
+        });
       }
     }
-  }, [state.goals, user]);
+  }, []);
 
-  // Sync transactions from Supabase
+  // Save data to localStorage
   useEffect(() => {
-    if (!loading && user) {
-      dispatch({ type: 'SET_TRANSACTIONS', payload: transactions });
-    }
-  }, [transactions, loading, user]);
-
-  // Wrap the dispatch to handle Supabase operations
-  const wrappedDispatch = async (action: Action) => {
-    if (!user) return;
-
-    switch (action.type) {
-      case 'ADD_TRANSACTION':
-        try {
-          const newTransaction = await addTransaction(action.payload);
-          if (newTransaction) {
-            dispatch(action);
-          }
-        } catch (error) {
-          console.error('Error adding transaction:', error);
-          throw error;
-        }
-        break;
-      case 'DELETE_TRANSACTION':
-        try {
-          await deleteTransaction(action.payload);
-          dispatch(action);
-        } catch (error) {
-          console.error('Error deleting transaction:', error);
-          throw error;
-        }
-        break;
-      default:
-        dispatch(action);
-    }
-  };
+    localStorage.setItem('financeTrackerData', JSON.stringify({
+      transactions: state.transactions,
+      goals: state.goals,
+      creditDebitAccounts: state.creditDebitAccounts,
+    }));
+  }, [state]);
 
   return (
-    <ExpenseContext.Provider value={{ state, dispatch: wrappedDispatch }}>
+    <ExpenseContext.Provider value={{ state, dispatch }}>
       {children}
     </ExpenseContext.Provider>
   );
